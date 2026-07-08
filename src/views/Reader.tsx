@@ -168,7 +168,7 @@ export default function Reader() {
         <div className="flex items-center justify-between gap-3">
           <button
             onClick={() => nav(-1)}
-            className={`font-label text-[10px] tracking-seal ${candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
+            className={`py-3 pr-3 font-label text-[10px] tracking-seal ${candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
           >
             ← RETURN
           </button>
@@ -176,7 +176,7 @@ export default function Reader() {
             <button
               onClick={() => setCandle((c) => !c)}
               aria-pressed={candle}
-              className={`font-label text-[10px] tracking-seal ${candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
+              className={`py-3 px-1 font-label text-[10px] tracking-seal ${candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
             >
               {candle ? "VOID" : "CANDLE"}
             </button>
@@ -184,7 +184,7 @@ export default function Reader() {
               <button
                 onClick={() => setMarked(toggleBookmark(doc))}
                 aria-pressed={marked}
-                className={`font-label text-[10px] tracking-seal ${marked ? "text-gold" : candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
+                className={`py-3 pl-1 font-label text-[10px] tracking-seal ${marked ? "text-gold" : candle ? "text-leather/70 hover:text-leather" : "text-vellum hover:text-gold"}`}
               >
                 {marked ? "KEPT ✦" : "KEEP"}
               </button>
@@ -284,20 +284,20 @@ export default function Reader() {
             <div className={`mt-8 grid grid-cols-3 gap-2 border-y py-3 ${candle ? "border-leather/20" : "border-gold/15"}`}>
               <button
                 onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-                className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+                className={`py-3.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
               >
                 ASCEND ↑
               </button>
               <button
                 onClick={() => nav(doc ? `/vault/${encodeURIComponent((doc.gate.match(/^Gate (\S+)/) || [])[1] || "")}` : "/vault")}
-                className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+                className={`py-3.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
               >
                 SEAL THE SCROLL
               </button>
               {neighbors.next ? (
                 <button
                   onClick={() => nav(`/read/${encodeURIComponent(neighbors.next!.id)}`)}
-                  className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+                  className={`py-3.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
                 >
                   NEXT SCROLL →
                 </button>

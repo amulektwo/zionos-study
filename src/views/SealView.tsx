@@ -27,14 +27,64 @@ export default function SealView() {
 
   async function share() {
     if (!seal) return;
-    const text = `THE WHITE SEAL — ${seal.archetype}\n${seal.title}\nGifts: ${seal.gifts.join(" · ")}\nBegin: ${seal.scrolls.map((s) => "Scroll " + s.id).join(", ")}\n© AMULEK ONE — The Sphere of Light`;
+    // THE WATERMARK (SEAL B) — the card leaves as pixels, the line baked in.
+    const W = 1080, H = 1350;
+    const c = document.createElement("canvas");
+    c.width = W; c.height = H;
+    const g = c.getContext("2d")!;
+    g.fillStyle = "#06060A"; g.fillRect(0, 0, W, H);
+    const glow = g.createRadialGradient(W/2, H*0.42, 40, W/2, H*0.42, 520);
+    glow.addColorStop(0, "rgba(197,165,90,.30)");
+    glow.addColorStop(0.5, "rgba(197,165,90,.10)");
+    glow.addColorStop(1, "rgba(197,165,90,0)");
+    g.fillStyle = glow; g.fillRect(0, 0, W, H);
+    g.strokeStyle = "#C5A55A"; g.lineWidth = 2;
+    g.strokeRect(36, 36, W-72, H-72);
+    const cx = W/2;
+    g.textAlign = "center";
+    g.fillStyle = "#C5A55A";
+    g.font = "500 30px Cinzel, serif";
+    g.fillText(`F O U N D I N G   S E A L   №  ${seal.number} / ${FOUNDING.total}`, cx, 150);
+    // the concentric mark
+    g.lineWidth = 3.5; g.beginPath(); g.arc(cx, 320, 92, 0, Math.PI*2); g.stroke();
+    g.lineWidth = 1.8; g.globalAlpha = .55; g.beginPath(); g.arc(cx, 320, 52, 0, Math.PI*2); g.stroke();
+    g.globalAlpha = .13; g.fillStyle = "#C5A55A"; g.beginPath(); g.arc(cx, 320, 38, 0, Math.PI*2); g.fill();
+    g.globalAlpha = 1; g.beginPath(); g.arc(cx, 320, 15, 0, Math.PI*2); g.fill();
+    g.fillStyle = "#F3EAD3";
+    g.font = "600 76px 'Cormorant Garamond', serif";
+    g.fillText(seal.archetype, cx, 540);
+    g.fillStyle = "#A69274";
+    g.font = "italic 38px 'EB Garamond', serif";
+    g.fillText(seal.title, cx, 600);
+    g.fillStyle = "#C5A55A";
+    g.font = "500 26px Cinzel, serif";
+    g.fillText(seal.gifts.join("   ·   ").toUpperCase(), cx, 668);
+    g.strokeStyle = "rgba(197,165,90,.5)"; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(cx-140, 720); g.lineTo(cx+140, 720); g.stroke();
+    g.fillStyle = "#A69274"; g.font = "500 24px Cinzel, serif";
+    g.fillText("Y O U R   F I R S T   S C R O L L S", cx, 780);
+    g.fillStyle = "#F3EAD3"; g.font = "italic 34px 'EB Garamond', serif";
+    seal.scrolls.forEach((s2, i) => {
+      const t = `Scroll ${s2.id} — ${s2.title.slice(0, 40)}`;
+      g.fillText(t, cx, 840 + i*54);
+    });
+    g.fillStyle = "#A69274"; g.font = "italic 26px 'EB Garamond', serif";
+    g.fillText("The Seal points to scrolls; it does not read souls.", cx, 1120);
+    g.fillStyle = "#C5A55A"; g.font = "italic 28px 'EB Garamond', serif";
+    g.fillText("© AMULEK ONE — The Sphere of Light", cx, 1240);
+    const blob: Blob = await new Promise((res) => c.toBlob((b) => res(b!), "image/png"));
+    const file = new File([blob], "white-seal.png", { type: "image/png" });
     try {
-      if (navigator.share) await navigator.share({ title: "The White Seal", text });
-      else {
-        await navigator.clipboard.writeText(text);
-        alert("Your seal is copied, watermark and all.");
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: "The White Seal" });
+        return;
       }
-    } catch { /* seeker closed the sheet */ }
+    } catch { /* fall through to download */ }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "white-seal.png";
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   return (
