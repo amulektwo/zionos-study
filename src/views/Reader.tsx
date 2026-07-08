@@ -150,6 +150,17 @@ export default function Reader() {
 
   const sents = useMemo(() => (doc ? sentences(doc.body) : []), [doc]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName?.match(/INPUT|TEXTAREA|SELECT/)) return;
+      if (e.key === "ArrowLeft" && neighbors.prev) nav(`/read/${encodeURIComponent(neighbors.prev.id)}`);
+      if (e.key === "ArrowRight" && neighbors.next) nav(`/read/${encodeURIComponent(neighbors.next.id)}`);
+      if (e.key === "Home") window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [neighbors, nav]);
+
 
   return (
     <div className={candle ? "candle min-h-dvh" : "min-h-dvh"}>
@@ -269,7 +280,31 @@ export default function Reader() {
               © AMULEK ONE — The Sphere of Light · rendered verbatim
             </p>
 
-            <div className="mt-8 flex justify-between gap-4">
+            {/* THE SCROLL'S END (LAMP B) — act without scrolling back */}
+            <div className={`mt-8 grid grid-cols-3 gap-2 border-y py-3 ${candle ? "border-leather/20" : "border-gold/15"}`}>
+              <button
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+              >
+                ASCEND ↑
+              </button>
+              <button
+                onClick={() => nav(doc ? `/vault/${encodeURIComponent((doc.gate.match(/^Gate (\S+)/) || [])[1] || "")}` : "/vault")}
+                className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+              >
+                SEAL THE SCROLL
+              </button>
+              {neighbors.next ? (
+                <button
+                  onClick={() => nav(`/read/${encodeURIComponent(neighbors.next!.id)}`)}
+                  className={`py-2.5 font-label text-[10px] tracking-seal ${candle ? "text-leather hover:bg-leather/10" : "text-gold hover:bg-gold/10"}`}
+                >
+                  NEXT SCROLL →
+                </button>
+              ) : <span />}
+            </div>
+
+            <div className="mt-6 flex justify-between gap-4">
               {neighbors.prev ? (
                 <Link
                   to={`/read/${encodeURIComponent(neighbors.prev.id)}`}
