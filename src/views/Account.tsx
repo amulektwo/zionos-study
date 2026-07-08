@@ -31,6 +31,19 @@ export default function Account() {
           </Link>
         ))}
       </div>
+      <button
+        onClick={() => {
+          try {
+            const order: string[] = JSON.parse(localStorage.getItem("zionos-lru") || "[]");
+            for (const id of order) localStorage.removeItem(`zionos-scroll-${id}`);
+            localStorage.removeItem("zionos-lru");
+            alert("The offline cache is cleared. Your bookmarks remain.");
+          } catch { /* nothing to clear */ }
+        }}
+        className="mt-10 border border-gold/40 px-6 py-3 font-label text-[10px] tracking-seal text-gold/85 hover:border-gold hover:text-gold"
+      >
+        CLEAR THE OFFLINE CACHE
+      </button>
       <div className="h-12" />
     </div>
   );
