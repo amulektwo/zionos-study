@@ -61,7 +61,7 @@ export default function SealView() {
             type="date"
             value={birthdate}
             onChange={(e) => setBirthdate(e.target.value)}
-            className="w-full border-b border-gold/40 bg-transparent py-3 font-body text-xl italic text-parchment focus:border-gold focus:outline-none [color-scheme:dark]"
+            className="h-[52px] w-full border-b border-gold/40 bg-transparent py-3 font-body text-xl italic text-parchment focus:border-gold focus:outline-none [color-scheme:dark]"
           />
           <button
             onClick={receive}

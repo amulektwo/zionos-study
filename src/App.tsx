@@ -32,7 +32,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 key={n.to}
                 to={n.to}
                 className={({ isActive }) =>
-                  `py-4 text-center font-label text-[10px] tracking-seal transition-colors ${
+                  `py-4 text-center font-label text-[10px] leading-none tracking-seal transition-colors ${
                     isActive ? "text-gold" : "text-vellum hover:text-parchment"
                   }`
                 }

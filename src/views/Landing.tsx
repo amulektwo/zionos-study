@@ -37,7 +37,7 @@ export default function Landing() {
           </Link>
           <Link
             to="/seal"
-            className="px-8 py-3.5 text-center font-label text-xs tracking-rite text-vellum transition-colors hover:text-parchment"
+            className="border border-transparent px-8 py-3.5 text-center font-label text-xs tracking-rite text-vellum transition-colors hover:text-parchment"
           >
             RECEIVE YOUR SEAL
           </Link>
