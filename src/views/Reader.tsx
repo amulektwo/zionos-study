@@ -23,19 +23,109 @@ export default function Reader() {
   const [marked, setMarked] = useState(false);
   const [neighbors, setNeighbors] = useState<{ prev?: IndexEntry; next?: IndexEntry }>({});
 
-  // Listen state
+  // ---- THE VOICE (LAMP A) — chunked utterance chains ----
+  // Web Speech loses long utterances (iOS) and kills >~15s speech (Chrome);
+  // we speak 3-sentence chunks chained on `onend`, with a resume watchdog
+  // for Chrome's pause-freeze. Hosted-voice seam: replace speakChunk() with
+  // an ElevenLabs stream player behind the same start/stop interface.
   const [speaking, setSpeaking] = useState(false);
   const [spokenIdx, setSpokenIdx] = useState(-1);
   const [rate, setRate] = useState(1);
   const [voiceName, setVoiceName] = useState<string>("");
-  const utterRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [voicesSettled, setVoicesSettled] = useState(false);
+  const chunkAt = useRef(0);        // first sentence index of the live chunk
+  const wantSpeak = useRef(false);  // survives async chunk chaining
+  const watchdog = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const CHUNK = 3;
+
+  useEffect(() => {
+    if (!("speechSynthesis" in window)) { setVoicesSettled(true); return; }
+    const pull = () => {
+      const v = speechSynthesis.getVoices();
+      if (v.length) { setVoices(v); setVoicesSettled(true); }
+    };
+    pull();
+    speechSynthesis.addEventListener("voiceschanged", pull);
+    const settle = setTimeout(() => setVoicesSettled(true), 1500);
+    return () => {
+      speechSynthesis.removeEventListener("voiceschanged", pull);
+      clearTimeout(settle);
+    };
+  }, []);
+
+  function speakChunk(from: number, sentsArr: string[], theRate: number, theVoice: string) {
+    if (!wantSpeak.current || from >= sentsArr.length) {
+      wantSpeak.current = false;
+      setSpeaking(false);
+      setSpokenIdx(-1);
+      return;
+    }
+    chunkAt.current = from;
+    const group = sentsArr.slice(from, from + CHUNK);
+    const u = new SpeechSynthesisUtterance(group.join(" "));
+    u.rate = theRate;
+    const v = speechSynthesis.getVoices().find((x) => x.name === theVoice);
+    if (v) u.voice = v;
+    let local = 0;
+    let consumed = 0;
+    setSpokenIdx(from);
+    document.getElementById(`sent-${from}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    u.onboundary = (e) => {
+      if (e.charIndex === undefined) return;
+      while (local < group.length - 1 && e.charIndex >= consumed + group[local].length + 1) {
+        consumed += group[local].length + 1;
+        local++;
+        setSpokenIdx(from + local);
+        document.getElementById(`sent-${from + local}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    };
+    u.onend = () => speakChunk(from + CHUNK, sentsArr, theRate, theVoice);
+    u.onerror = () => speakChunk(from + CHUNK, sentsArr, theRate, theVoice);
+    speechSynthesis.speak(u);
+  }
+
+  function speak(from = 0) {
+    if (!doc || !("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    wantSpeak.current = true;
+    setSpeaking(true);
+    clearInterval(watchdog.current);
+    watchdog.current = setInterval(() => {
+      // Chrome freezes long sessions in a paused state; nudge it awake.
+      if (wantSpeak.current && speechSynthesis.paused) speechSynthesis.resume();
+    }, 8000);
+    speakChunk(from, sents, rate, voiceName);
+  }
+  function stopSpeak() {
+    wantSpeak.current = false;
+    clearInterval(watchdog.current);
+    speechSynthesis.cancel();
+    setSpeaking(false);
+    setSpokenIdx(-1);
+  }
+  function changeRate(r: number) {
+    setRate(r);
+    if (wantSpeak.current) {
+      // restart the live chunk at the new pace, mid-read
+      const at = chunkAt.current;
+      wantSpeak.current = false;
+      speechSynthesis.cancel();
+      setTimeout(() => {
+        wantSpeak.current = true;
+        speakChunk(at, sents, r, voiceName);
+      }, 60);
+    }
+  }
 
   useEffect(() => {
     setDoc(null);
     setErr(null);
-    setSpokenIdx(-1);
-    speechSynthesis.cancel();
+    wantSpeak.current = false;
+    clearInterval(watchdog.current);
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
     setSpeaking(false);
+    setSpokenIdx(-1);
     if (!scrollId) return;
     fetchScroll(scrollId)
       .then((d) => {
@@ -47,57 +137,19 @@ export default function Reader() {
       const at = idx.findIndex((e) => e.id === scrollId);
       if (at === -1) return;
       const gate = idx[at].gate;
-      const prev = idx
-        .slice(0, at)
-        .reverse()
-        .find((e) => e.gate === gate);
+      const prev = idx.slice(0, at).reverse().find((e) => e.gate === gate);
       const next = idx.slice(at + 1).find((e) => e.gate === gate);
       setNeighbors({ prev, next });
     });
-    return () => speechSynthesis.cancel();
+    return () => {
+      wantSpeak.current = false;
+      clearInterval(watchdog.current);
+      if ("speechSynthesis" in window) speechSynthesis.cancel();
+    };
   }, [scrollId]);
 
   const sents = useMemo(() => (doc ? sentences(doc.body) : []), [doc]);
 
-  function speak(from = 0) {
-    if (!doc) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(sents.slice(from).join(" "));
-    u.rate = rate;
-    const v = speechSynthesis.getVoices().find((v) => v.name === voiceName);
-    if (v) u.voice = v;
-    let idx = from;
-    let consumed = 0;
-    u.onboundary = (e) => {
-      if (e.name !== "sentence" && e.charIndex === undefined) return;
-      while (
-        idx < sents.length - 1 &&
-        e.charIndex >= consumed + sents[idx].length + 1
-      ) {
-        consumed += sents[idx].length + 1;
-        idx++;
-      }
-      setSpokenIdx(idx);
-      document
-        .getElementById(`sent-${idx}`)
-        ?.scrollIntoView({ block: "center", behavior: "smooth" });
-    };
-    u.onend = () => {
-      setSpeaking(false);
-      setSpokenIdx(-1);
-    };
-    utterRef.current = u;
-    setSpokenIdx(from);
-    setSpeaking(true);
-    speechSynthesis.speak(u);
-  }
-  function stopSpeak() {
-    speechSynthesis.cancel();
-    setSpeaking(false);
-    setSpokenIdx(-1);
-  }
-
-  const voices = typeof speechSynthesis !== "undefined" ? speechSynthesis.getVoices() : [];
 
   return (
     <div className={candle ? "candle min-h-dvh" : "min-h-dvh"}>
@@ -167,7 +219,7 @@ export default function Reader() {
                 PACE
                 <select
                   value={rate}
-                  onChange={(e) => setRate(Number(e.target.value))}
+                  onChange={(e) => changeRate(Number(e.target.value))}
                   className="ml-2 bg-transparent font-body italic"
                 >
                   {[0.8, 1, 1.2, 1.4].map((r) => (
@@ -177,6 +229,11 @@ export default function Reader() {
                   ))}
                 </select>
               </label>
+              {voicesSettled && voices.length === 0 && (
+                <span className={`font-body text-xs italic ${candle ? "text-leather/70" : "text-vellum"}`}>
+                  This device offers no voices; the hosted voice is coming.
+                </span>
+              )}
               {voices.length > 0 && (
                 <label className={`font-label text-[9px] tracking-seal ${candle ? "text-leather/70" : "text-vellum"}`}>
                   VOICE
