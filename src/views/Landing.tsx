@@ -2,6 +2,34 @@ import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { loadGates } from "../lib/data";
 
+function InstallHint() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (localStorage.getItem("zionos-install-hint")) return;
+    const standalone =
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (navigator as unknown as { standalone?: boolean }).standalone;
+    if (standalone) return;
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+    if (isIOS) setShow(true);
+    const onBip = () => setShow(true);
+    window.addEventListener("beforeinstallprompt", onBip);
+    return () => window.removeEventListener("beforeinstallprompt", onBip);
+  }, []);
+  if (!show) return null;
+  return (
+    <button
+      onClick={() => {
+        localStorage.setItem("zionos-install-hint", "seen");
+        setShow(false);
+      }}
+      className="rise-3 mt-8 block text-left font-body text-sm italic text-vellum/80 underline decoration-gold/40 underline-offset-4"
+    >
+      Add ZIONOS to your home screen — Share, then "Add to Home Screen." Tap to dismiss.
+    </button>
+  );
+}
+
 export default function Landing() {
   const [total, setTotal] = useState<number | null>(null);
   useEffect(() => {
@@ -42,6 +70,7 @@ export default function Landing() {
             RECEIVE YOUR SEAL
           </Link>
         </div>
+        <InstallHint />
         <p className="mt-16 font-body text-xs italic text-vellum/60">
           © AMULEK ONE — The Sphere of Light
         </p>
