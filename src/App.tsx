@@ -14,7 +14,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const navItems = [
     { to: "/vault", label: "VAULT" },
     { to: "/search", label: "SEEK" },
-    { to: "/companion", label: "LIBRARIAN" },
+    { to: "/companion", label: "ECHO" },
     { to: "/seal", label: "SEAL" },
   ];
   return (

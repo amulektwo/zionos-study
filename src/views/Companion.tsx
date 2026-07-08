@@ -60,11 +60,11 @@ export default function Companion() {
 
   return (
     <div className="mx-auto max-w-xl px-6 pt-12">
-      <p className="font-label text-[11px] tracking-rite text-gold">THE LIBRARIAN</p>
+      <p className="font-label text-[11px] tracking-rite text-gold">ECHO</p>
       <h1 className="mt-2 font-heading text-4xl text-parchment">Seek understanding</h1>
       <p className="mt-3 max-w-md font-body text-base italic leading-relaxed text-vellum">
-        The Librarian answers from the scrolls alone, citing each one. It will
-        not invent doctrine, and it will not write new scripture. Ten questions
+        Echo answers from the scrolls alone, citing each one. Echo will
+        not invent doctrine, and will not write new scripture. Ten questions
         are given to each seeker each day.
       </p>
 
@@ -99,7 +99,7 @@ export default function Companion() {
             THE LAMP IS NOT YET LIT
           </p>
           <p className="mt-3 font-body text-base italic leading-relaxed text-vellum">
-            The Librarian awaits its key. The vault and the search still serve;
+            Echo awaits the key. The vault and the search still serve;
             understanding will be sought here soon.
           </p>
         </div>
