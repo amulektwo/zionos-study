@@ -1,0 +1,35 @@
+# THE HERALD — deterministic Pages deploys (Law 37 of the city, inherited).
+name: Deploy Pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm }
+      - run: npm ci
+      - name: Contamination gate (trade dress must never enter)
+        run: |
+          ! grep -riE "oraqel|seerscriptures|eyes to see\. ears to hear" src/ index.html public/manifest.json
+          ! grep -rE "\bABEL\b" src/
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'dist'
+      - id: deployment
+        uses: actions/deploy-pages@v4

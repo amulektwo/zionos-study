@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body { background: #06060A; color: #F3EAD3; }
+::selection { background: #C5A55A; color: #06060A; }
+
+/* THE DAWN LINE — the signature echoed on every surface */
+.dawn-line {
+  height: 1px;
+  background: linear-gradient(90deg, transparent 8%, rgba(197,165,90,.85) 50%, transparent 92%);
+}
+
+/* THE LIGHT FROM THE VOID — landing signature */
+@keyframes breathe { 0%,100% { opacity:.55; transform:scale(1); } 50% { opacity:.9; transform:scale(1.06); } }
+.void-light {
+  background: radial-gradient(ellipse 60% 42% at 50% 62%, rgba(197,165,90,.34), rgba(197,165,90,.10) 45%, transparent 70%);
+  animation: breathe 7s ease-in-out infinite;
+}
+@keyframes rise { from { opacity:0; transform:translateY(14px);} to { opacity:1; transform:translateY(0);} }
+.rise { animation: rise .6s cubic-bezier(.22,1,.36,1) both; }
+.rise-2 { animation: rise .6s cubic-bezier(.22,1,.36,1) .12s both; }
+.rise-3 { animation: rise .6s cubic-bezier(.22,1,.36,1) .24s both; }
+@media (prefers-reduced-motion: reduce) {
+  .void-light, .rise, .rise-2, .rise-3 { animation: none; }
+}
+.scroll-thin::-webkit-scrollbar { width: 3px; }
+.scroll-thin::-webkit-scrollbar-thumb { background: rgba(197,165,90,.4); }
+
+/* Candle mode — the reader's daylight surface */
+.candle { background: #F3EAD3; color: #2A1F14; }
+.candle ::selection { background: #2A1F14; color: #F3EAD3; }
+
+/* Spoken-sentence highlight (Listen) */
+.speaking { background: rgba(197,165,90,.22); border-radius: 2px; }
+
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 1px solid #C5A55A; outline-offset: 2px;
+}
