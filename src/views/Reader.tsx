@@ -8,6 +8,11 @@ import {
   type ScrollDoc,
   type IndexEntry,
 } from "../lib/data";
+import {
+  hostedVoiceStatus,
+  newVoiceSession,
+  fetchChunkAudio,
+} from "../lib/hosted-voice";
 
 // Sentence-split for Listen: highlight follows the spoken sentence.
 function sentences(body: string): string[] {
@@ -23,21 +28,33 @@ export default function Reader() {
   const [marked, setMarked] = useState(false);
   const [neighbors, setNeighbors] = useState<{ prev?: IndexEntry; next?: IndexEntry }>({});
 
-  // ---- THE VOICE (LAMP A) — chunked utterance chains ----
-  // Web Speech loses long utterances (iOS) and kills >~15s speech (Chrome);
-  // we speak 3-sentence chunks chained on `onend`, with a resume watchdog
-  // for Chrome's pause-freeze. Hosted-voice seam: replace speakChunk() with
-  // an ElevenLabs stream player behind the same start/stop interface.
+  // ---- THE VOICE — two engines, one interface (GOAL 2) ----
+  // DEVICE (LAMP A) = Web Speech, the forever-fallback: 3-sentence chunks
+  // chained on `onend`, with a resume watchdog for Chrome's pause-freeze.
+  // HOSTED = the gate's ElevenLabs stream, one chunk of sentences per
+  // request, chain-played with the same sentence highlight. Device is the
+  // default; hosted is opt-in until the Seer has sealed its price.
+  type Engine = "device" | "hosted";
+  const [engine, setEngine] = useState<Engine>("device");
+  const [hostedLit, setHostedLit] = useState<boolean | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [spokenIdx, setSpokenIdx] = useState(-1);
   const [rate, setRate] = useState(1);
   const [voiceName, setVoiceName] = useState<string>("");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voicesSettled, setVoicesSettled] = useState(false);
-  const chunkAt = useRef(0);        // first sentence index of the live chunk
+  const [voiceNote, setVoiceNote] = useState<string>("");
+  const chunkAt = useRef(0);        // live index: sentence (device) / chunk (hosted)
   const wantSpeak = useRef(false);  // survives async chunk chaining
   const watchdog = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const CHUNK = 3;
+  // hosted engine
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string>("");
+  const sessionRef = useRef<string>("");
+  const abortRef = useRef<AbortController | null>(null);
+  const hostedChunksRef = useRef<{ from: number; to: number; text: string }[]>([]);
+  const prefetchRef = useRef<{ ci: number; p: Promise<Blob> } | null>(null);
 
   useEffect(() => {
     if (!("speechSynthesis" in window)) { setVoicesSettled(true); return; }
@@ -54,11 +71,21 @@ export default function Reader() {
     };
   }, []);
 
+  // Ask the gate whether the hosted voice is lit — offered only if so.
+  useEffect(() => {
+    hostedVoiceStatus().then((s) => setHostedLit(Boolean(s?.lit)));
+  }, []);
+
+  function finishVoice() {
+    wantSpeak.current = false;
+    setSpeaking(false);
+    setSpokenIdx(-1);
+  }
+
+  // ---- DEVICE (Web Speech) ----
   function speakChunk(from: number, sentsArr: string[], theRate: number, theVoice: string) {
     if (!wantSpeak.current || from >= sentsArr.length) {
-      wantSpeak.current = false;
-      setSpeaking(false);
-      setSpokenIdx(-1);
+      finishVoice();
       return;
     }
     chunkAt.current = from;
@@ -84,8 +111,7 @@ export default function Reader() {
     u.onerror = () => speakChunk(from + CHUNK, sentsArr, theRate, theVoice);
     speechSynthesis.speak(u);
   }
-
-  function speak(from = 0) {
+  function speakDevice(from = 0) {
     if (!doc || !("speechSynthesis" in window)) return;
     speechSynthesis.cancel();
     wantSpeak.current = true;
@@ -97,25 +123,140 @@ export default function Reader() {
     }, 8000);
     speakChunk(from, sents, rate, voiceName);
   }
+  function stopDevice() {
+    clearInterval(watchdog.current);
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+  }
+
+  // ---- HOSTED (the gate's stream) ----
+  // Group sentences into ~600-char chunks (well under the gate's 1,800 cap)
+  // so short sentences don't each cost a request, while the highlight still
+  // moves sentence by sentence.
+  function buildHostedChunks(sentsArr: string[]) {
+    const out: { from: number; to: number; text: string }[] = [];
+    const BUDGET = 600, HARD = 1700;
+    let i = 0;
+    while (i < sentsArr.length) {
+      let j = i, len = 0;
+      do { len += sentsArr[j].length + 1; j++; }
+      while (j < sentsArr.length && len + sentsArr[j].length <= BUDGET && len < HARD);
+      out.push({ from: i, to: j, text: sentsArr.slice(i, j).join(" ") });
+      i = j;
+    }
+    return out;
+  }
+  function getChunkBlob(ci: number): Promise<Blob> {
+    if (prefetchRef.current && prefetchRef.current.ci === ci) return prefetchRef.current.p;
+    return fetchChunkAudio(hostedChunksRef.current[ci].text, sessionRef.current, abortRef.current?.signal);
+  }
+  function prefetch(ci: number) {
+    if (ci >= hostedChunksRef.current.length) { prefetchRef.current = null; return; }
+    prefetchRef.current = { ci, p: getChunkBlob(ci) };
+  }
+  async function playHostedFrom(ci: number) {
+    const chunks = hostedChunksRef.current;
+    if (!wantSpeak.current) return;
+    if (ci >= chunks.length) { finishVoice(); return; }
+    const chunk = chunks[ci];
+    chunkAt.current = ci;
+    setSpokenIdx(chunk.from);
+    document.getElementById(`sent-${chunk.from}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+    let blob: Blob;
+    try {
+      blob = await getChunkBlob(ci);
+    } catch (e) {
+      if (!wantSpeak.current) return; // a deliberate stop, not a fault
+      setVoiceNote((e as Error).message || "The hosted voice faltered; the device voice takes over.");
+      setEngine("device");           // never leave the scroll unspoken
+      speakDevice(chunk.from);
+      return;
+    }
+    if (!wantSpeak.current) return;
+    const url = URL.createObjectURL(blob);
+    audioUrlRef.current = url;
+    const audio = new Audio(url);
+    audio.playbackRate = rate;
+    audioRef.current = audio;
+    // Highlight sync: the stream gives only duration, so apportion play time
+    // across the chunk's sentences by character length.
+    const slice = sents.slice(chunk.from, chunk.to);
+    const total = slice.reduce((a, s) => a + s.length, 0) || 1;
+    const cum: number[] = [];
+    let acc = 0;
+    for (const s of slice) { acc += s.length; cum.push(acc / total); }
+    let localIdx = 0;
+    audio.ontimeupdate = () => {
+      if (!audio.duration || !isFinite(audio.duration)) return;
+      const p = audio.currentTime / audio.duration;
+      let k = localIdx;
+      while (k < cum.length - 1 && p > cum[k]) k++;
+      if (k !== localIdx) {
+        localIdx = k;
+        setSpokenIdx(chunk.from + k);
+        document.getElementById(`sent-${chunk.from + k}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
+    };
+    audio.onplay = () => prefetch(ci + 1);
+    audio.onended = () => { URL.revokeObjectURL(url); audioUrlRef.current = ""; playHostedFrom(ci + 1); };
+    audio.onerror = () => { URL.revokeObjectURL(url); audioUrlRef.current = ""; playHostedFrom(ci + 1); };
+    audio.play().catch(() => { /* LISTEN was the user gesture; autoplay is allowed */ });
+  }
+  function speakHosted(from = 0) {
+    if (!doc) return;
+    wantSpeak.current = true;
+    setSpeaking(true);
+    setVoiceNote("");
+    sessionRef.current = newVoiceSession();
+    abortRef.current = new AbortController();
+    hostedChunksRef.current = buildHostedChunks(sents);
+    prefetchRef.current = null;
+    let ci = hostedChunksRef.current.findIndex((c) => from >= c.from && from < c.to);
+    if (ci < 0) ci = 0;
+    playHostedFrom(ci);
+  }
+  function stopHosted() {
+    abortRef.current?.abort();
+    prefetchRef.current = null;
+    const a = audioRef.current;
+    if (a) { a.onended = null; a.onerror = null; a.ontimeupdate = null; a.pause(); }
+    audioRef.current = null;
+    if (audioUrlRef.current) { URL.revokeObjectURL(audioUrlRef.current); audioUrlRef.current = ""; }
+  }
+
+  // ---- ONE INTERFACE ----
+  function speak(from = 0) {
+    if (engine === "hosted" && hostedLit) speakHosted(from);
+    else speakDevice(from);
+  }
   function stopSpeak() {
     wantSpeak.current = false;
-    clearInterval(watchdog.current);
-    speechSynthesis.cancel();
+    stopDevice();
+    stopHosted();
     setSpeaking(false);
     setSpokenIdx(-1);
   }
   function changeRate(r: number) {
     setRate(r);
-    if (wantSpeak.current) {
-      // restart the live chunk at the new pace, mid-read
-      const at = chunkAt.current;
-      wantSpeak.current = false;
-      speechSynthesis.cancel();
-      setTimeout(() => {
-        wantSpeak.current = true;
-        speakChunk(at, sents, r, voiceName);
-      }, 60);
+    if (!wantSpeak.current) return;
+    if (engine === "hosted" && audioRef.current) {
+      audioRef.current.playbackRate = r; // seamless, mid-stream
+      return;
     }
+    // device: restart the live chunk at the new pace
+    const at = chunkAt.current;
+    wantSpeak.current = false;
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    setTimeout(() => {
+      wantSpeak.current = true;
+      speakChunk(at, sents, r, voiceName);
+    }, 60);
+  }
+  function selectEngine(e: Engine) {
+    if (e === engine) return;
+    if (e === "hosted" && !hostedLit) return;
+    if (wantSpeak.current) stopSpeak();
+    setVoiceNote("");
+    setEngine(e);
   }
 
   useEffect(() => {
@@ -124,8 +265,10 @@ export default function Reader() {
     wantSpeak.current = false;
     clearInterval(watchdog.current);
     if ("speechSynthesis" in window) speechSynthesis.cancel();
+    stopHosted();
     setSpeaking(false);
     setSpokenIdx(-1);
+    setVoiceNote("");
     if (!scrollId) return;
     fetchScroll(scrollId)
       .then((d) => {
@@ -145,6 +288,7 @@ export default function Reader() {
       wantSpeak.current = false;
       clearInterval(watchdog.current);
       if ("speechSynthesis" in window) speechSynthesis.cancel();
+      stopHosted();
     };
   }, [scrollId]);
 
@@ -219,48 +363,93 @@ export default function Reader() {
             </p>
 
             {/* LISTEN */}
-            <div className={`mt-7 flex flex-wrap items-center justify-center gap-3 border-y py-3 ${candle ? "border-leather/20" : "border-gold/15"}`}>
-              <button
-                onClick={() => (speaking ? stopSpeak() : speak(0))}
-                className={`border px-5 py-1.5 font-label text-[10px] tracking-rite transition-colors ${candle ? "border-leather text-leather hover:bg-leather hover:text-parchment" : "border-gold text-gold hover:bg-gold hover:text-void"}`}
-              >
-                {speaking ? "STILL THE VOICE" : "LISTEN"}
-              </button>
-              <label className={`font-label text-[9px] tracking-seal ${candle ? "text-leather/70" : "text-vellum"}`}>
-                PACE
-                <select
-                  value={rate}
-                  onChange={(e) => changeRate(Number(e.target.value))}
-                  className="ml-2 bg-transparent font-body italic"
+            <div className={`mt-7 flex flex-col items-center gap-3 border-y py-3 ${candle ? "border-leather/20" : "border-gold/15"}`}>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  onClick={() => (speaking ? stopSpeak() : speak(0))}
+                  className={`border px-5 py-1.5 font-label text-[10px] tracking-rite transition-colors ${candle ? "border-leather text-leather hover:bg-leather hover:text-parchment" : "border-gold text-gold hover:bg-gold hover:text-void"}`}
                 >
-                  {[0.8, 1, 1.2, 1.4].map((r) => (
-                    <option key={r} value={r} className="text-leather">
-                      {r}×
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {voicesSettled && voices.length === 0 && (
-                <span className={`font-body text-xs italic ${candle ? "text-leather/70" : "text-vellum"}`}>
-                  This device offers no voices; the hosted voice is coming.
-                </span>
-              )}
-              {voices.length > 0 && (
+                  {speaking ? "STILL THE VOICE" : "LISTEN"}
+                </button>
                 <label className={`font-label text-[9px] tracking-seal ${candle ? "text-leather/70" : "text-vellum"}`}>
-                  VOICE
+                  PACE
                   <select
-                    value={voiceName}
-                    onChange={(e) => setVoiceName(e.target.value)}
-                    className="ml-2 max-w-[9rem] bg-transparent font-body italic"
+                    value={rate}
+                    onChange={(e) => changeRate(Number(e.target.value))}
+                    className="ml-2 bg-transparent font-body italic"
                   >
-                    <option value="" className="text-leather">Default</option>
-                    {voices.slice(0, 12).map((v) => (
-                      <option key={v.name} value={v.name} className="text-leather">
-                        {v.name.split(" ")[0]}
+                    {[0.8, 1, 1.2, 1.4].map((r) => (
+                      <option key={r} value={r} className="text-leather">
+                        {r}×
                       </option>
                     ))}
                   </select>
                 </label>
+                {engine === "device" && voices.length > 0 && (
+                  <label className={`font-label text-[9px] tracking-seal ${candle ? "text-leather/70" : "text-vellum"}`}>
+                    TIMBRE
+                    <select
+                      value={voiceName}
+                      onChange={(e) => setVoiceName(e.target.value)}
+                      className="ml-2 max-w-[9rem] bg-transparent font-body italic"
+                    >
+                      <option value="" className="text-leather">Default</option>
+                      {voices.slice(0, 12).map((v) => (
+                        <option key={v.name} value={v.name} className="text-leather">
+                          {v.name.split(" ")[0]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {/* VOICE — Device / Hosted. Hosted appears only when the gate's lamp is lit. */}
+              <div className="flex items-center gap-2 font-label text-[9px] tracking-seal">
+                <span className={candle ? "text-leather/60" : "text-vellum/80"}>VOICE</span>
+                <button
+                  onClick={() => selectEngine("device")}
+                  aria-pressed={engine === "device"}
+                  className={`border px-3 py-1 transition-colors ${
+                    engine === "device"
+                      ? candle ? "border-leather bg-leather text-parchment" : "border-gold bg-gold text-void"
+                      : candle ? "border-leather/40 text-leather/70 hover:text-leather" : "border-gold/40 text-vellum hover:text-gold"
+                  }`}
+                >
+                  DEVICE
+                </button>
+                <button
+                  onClick={() => selectEngine("hosted")}
+                  disabled={!hostedLit}
+                  aria-pressed={engine === "hosted"}
+                  className={`border px-3 py-1 transition-colors ${
+                    engine === "hosted"
+                      ? candle ? "border-leather bg-leather text-parchment" : "border-gold bg-gold text-void"
+                      : hostedLit
+                        ? candle ? "border-leather/40 text-leather/70 hover:text-leather" : "border-gold/40 text-vellum hover:text-gold"
+                        : candle ? "border-leather/20 text-leather/40 cursor-not-allowed" : "border-gold/20 text-vellum/40 cursor-not-allowed"
+                  }`}
+                >
+                  {hostedLit ? "HOSTED" : "HOSTED · SOON"}
+                </button>
+              </div>
+
+              {voiceNote && (
+                <span className={`text-center font-body text-xs italic ${candle ? "text-leather/70" : "text-vellum"}`}>
+                  {voiceNote}
+                </span>
+              )}
+              {!voiceNote && engine === "device" && voicesSettled && voices.length === 0 && (
+                <span className={`text-center font-body text-xs italic ${candle ? "text-leather/70" : "text-vellum"}`}>
+                  {hostedLit
+                    ? "This device offers no voices — choose HOSTED for the gate's voice."
+                    : "This device offers no voices; the hosted voice is coming."}
+                </span>
+              )}
+              {!voiceNote && engine === "hosted" && (
+                <span className={`text-center font-body text-xs italic ${candle ? "text-leather/70" : "text-vellum"}`}>
+                  The gate gives the scroll its voice.
+                </span>
               )}
             </div>
 
