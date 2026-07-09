@@ -40,6 +40,7 @@ export default function Reader() {
   const [speaking, setSpeaking] = useState(false);
   const [spokenIdx, setSpokenIdx] = useState(-1);
   const [rate, setRate] = useState(1);
+  const rateRef = useRef(1); // the live rate — hosted chunks + device fallback read this, never a stale closure
   const [voiceName, setVoiceName] = useState<string>("");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voicesSettled, setVoicesSettled] = useState(false);
@@ -121,7 +122,7 @@ export default function Reader() {
       // Chrome freezes long sessions in a paused state; nudge it awake.
       if (wantSpeak.current && speechSynthesis.paused) speechSynthesis.resume();
     }, 8000);
-    speakChunk(from, sents, rate, voiceName);
+    speakChunk(from, sents, rateRef.current, voiceName);
   }
   function stopDevice() {
     clearInterval(watchdog.current);
@@ -151,7 +152,9 @@ export default function Reader() {
   }
   function prefetch(ci: number) {
     if (ci >= hostedChunksRef.current.length) { prefetchRef.current = null; return; }
-    prefetchRef.current = { ci, p: getChunkBlob(ci) };
+    const p = getChunkBlob(ci);
+    p.catch(() => {}); // an aborted/failed prefetch must not surface as an unhandled rejection
+    prefetchRef.current = { ci, p };
   }
   async function playHostedFrom(ci: number) {
     const chunks = hostedChunksRef.current;
@@ -175,7 +178,7 @@ export default function Reader() {
     const url = URL.createObjectURL(blob);
     audioUrlRef.current = url;
     const audio = new Audio(url);
-    audio.playbackRate = rate;
+    audio.playbackRate = rateRef.current;
     audioRef.current = audio;
     // Highlight sync: the stream gives only duration, so apportion play time
     // across the chunk's sentences by character length.
@@ -237,9 +240,13 @@ export default function Reader() {
   }
   function changeRate(r: number) {
     setRate(r);
+    rateRef.current = r; // every future chunk (hosted or device) reads this
     if (!wantSpeak.current) return;
-    if (engine === "hosted" && audioRef.current) {
-      audioRef.current.playbackRate = r; // seamless, mid-stream
+    if (engine === "hosted") {
+      // Patch the live chunk if one exists; chunks still fetching pick up
+      // rateRef.current when their Audio is created. Never fall through to the
+      // device engine — that would play Web Speech over the hosted stream.
+      if (audioRef.current) audioRef.current.playbackRate = r;
       return;
     }
     // device: restart the live chunk at the new pace
